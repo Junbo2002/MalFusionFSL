@@ -163,6 +163,7 @@ for epoch in epoch_range:
             plot.update(title='loss', x_val=epoch+1, y_val=[[train_loss, val_loss]],
                         update={'flag': True, 'val': None if (epoch+1) // config.train.ValCycle <= 1 else 'append'})
 
+# TODO 测试可以 update 多次
 stat.dumpStatHist()
 plotLine(stat.getHistMetric(idx=0), ('train ' + config.train.Metrics[0], 'val ' + config.train.Metrics[0]),
          title=model.name() + ' ' + config.train.Metrics[0],

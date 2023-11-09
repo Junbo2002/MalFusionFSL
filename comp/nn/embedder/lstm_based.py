@@ -42,6 +42,6 @@ class BaseLSTMEmbedder(nn.Module):
         self.HiddenSize = hidden_size
 
     def forward(self, x, lens=None):
-        x = self.LSTM(x, lens)
-        x = self.SeqReduction(x, lens)
+        x = self.LSTM(x, lens)  # [25, 300, 256]
+        x = self.SeqReduction(x, lens)  # [25, 256]
         return x

@@ -28,13 +28,6 @@ class BiLstmEncoder(nn.Module):
                                batch_first=True,
                                dropout=dropout,
                                bidirectional=bidirectional)
-
-        # if self.SelfAtt is not None and self.SelfAtt['enabled']:
-        #     if self.SelfAtt['self_att_type'] == 'custom':
-        #         self.Attention = BiliAttnReduction((1 + bidirectional) * hidden_size, **self.SelfAtt['self_att_params'])
-        #     else:
-        #         # TODO: 可以添加一些例如多头注意力的reduction
-        #         raise NotImplementedError("%s type self attention not implemented yet")
         # else:
         self.Attention = None
 

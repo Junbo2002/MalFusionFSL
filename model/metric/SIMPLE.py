@@ -142,31 +142,31 @@ class SIMPLE(BaseEmbedModel):
                 support_seqs, support_imgs, support_lens, support_labels,
                 query_seqs, query_imgs, query_lens, query_labels,
                 epoch=None, metric='euc', return_embeddings=False):
-
+        # 所有的size都是 50[n*k] * 256[embed_dim]
         embedded_support_seqs, embedded_query_seqs, \
         embedded_support_imgs, embedded_query_imgs = self.embed(support_seqs, query_seqs,
                                                                 support_lens, query_lens,
                                                                 support_imgs, query_imgs)
 
-        k, n, qk = self.TaskParams.k, self.TaskParams.n, self.TaskParams.qk
+        k, n, qk = self.TaskParams.k, self.TaskParams.n, self.TaskParams.qk  # 5, 10, 50
 
-        # 直接使用seq和img的raw output进行fuse
+        # 直接使用seq和img的raw output进行fuse (cat fusion: [50, 512])
         support_fused_features = self._fuse(embedded_support_seqs, embedded_support_imgs, fuse_dim=1)
         query_fused_features = self._fuse(embedded_query_seqs, embedded_query_imgs, fuse_dim=1)
-        dim = support_fused_features.size(1)
+        dim = support_fused_features.size(1)  # 512
 
         nClusters = n  # 初始类簇的数量等于类数量
         nInitialClusters = nClusters
 
-        # 此处设定batch=1
+        # 此处设定batch=1 (50,) -> (1, 50)
         support_labels = support_labels.unsqueeze(0)
         query_labels = query_labels.unsqueeze(0)
-        support_fused_features = support_fused_features.view(n * k, -1).unsqueeze(0)
+        support_fused_features = support_fused_features.view(n * k, -1).unsqueeze(0)  # (50, 512) -> (1, 50, 512)
         query_fused_features = query_fused_features.view(qk, -1).unsqueeze(0)
 
         # create probabilities for points
         # _, idx = np.unique(batch.y_train.squeeze().data.cpu().numpy(), return_inverse=True)
-        prob_support = one_hot(support_labels, nClusters).cuda()  # 将属于类簇的概率初始化为标签的one-hot
+        prob_support = one_hot(support_labels, nClusters).cuda()  # 将属于类簇的概率初始化为标签的one-hot: [1, 50, 10]
 
         # make initial radii for labeled clusters
         bsize = support_fused_features.size()[0]
@@ -174,12 +174,12 @@ class SIMPLE(BaseEmbedModel):
 
         if self.Sigma is not None:
             radii *= t.exp(self.Sigma)
-
+        # [0, 1, ..., 10]
         cluster_labels = t.arange(0, nClusters).cuda().long()
 
         # compute initial prototypes from labeled examples
         # 由于初始时，共有类别个类簇，而且类簇的分配系数是one-hot，因此初始类簇就是类中心
-        # shape: [batch, cluster, dim]
+        # shape: [batch(1), cluster(10), dim(512)]
         protos = self._compute_protos(support_fused_features, prob_support)
 
         # estimate lamda
@@ -191,7 +191,7 @@ class SIMPLE(BaseEmbedModel):
             # iterate over labeled examples to reassign first
             for i, ex in enumerate(support_fused_features[0]):
                 # 找到样本label对应的cluster的index
-                idxs = t.nonzero(support_labels[0, i] == cluster_labels)[0]  # TODO: 取0？
+                idxs = t.nonzero(support_labels[0, i] == cluster_labels)[0]
 
                 #****************************************************************************
                 # 计算与标签对应的类簇的距离(由于其他不对应的类簇的距离都是正无穷，求min时直接可忽略)
@@ -199,9 +199,9 @@ class SIMPLE(BaseEmbedModel):
                 # if t.min(distances) > lamda:
                 #****************************************************************************
 
-                distances = self._compute_distances(protos,ex)
+                distances = self._compute_distances(protos, ex)  # [1, 10]
                 # 如果发现离自己最近的cluster不是自己的类的cluster，就直接增加一个cluster
-                if not t.any(t.min(distances,dim=1).indices==idxs).item():
+                if not t.any(t.min(distances, dim=1).indices == idxs).item():
 
                     nClusters, protos, radii = self._add_cluster(nClusters, protos, radii,
                                                                  cluster_type='labeled', ex=ex.data)
@@ -209,7 +209,7 @@ class SIMPLE(BaseEmbedModel):
 
             # perform partial reassignment based on newly created labeled clusters
             if nClusters > nInitialClusters:
-                support_targets = support_labels.data[0, :, None] == cluster_labels  # 找到每个样本实际对应的类簇（每一行是每个样本对应的类簇bool）
+                support_targets = support_labels.data[0, :, None] == cluster_labels  # [n*k, nClusters]  # 找到每个样本实际对应的类簇（每一行是每个样本对应的类簇bool）
                 prob_support = assign_cluster_radii_limited(protos, support_fused_features, radii,
                                                             support_targets)  # 样本属于每个类簇的概率
 
@@ -312,8 +312,8 @@ def assign_cluster_radii_limited(cluster_centers, data, radii, target_labels):
     """Assigns data to cluster center, using K-Means.
 
     Args:
-        cluster_centers: [B, K, D] Cluster center representation.
-        data: [B, N, D] Data representation.
+        cluster_centers: [B, K(15), D(512)] Cluster center representation.
+        data: [B, N(50), D] Data representation.
         radii: [B, K] Cluster radii.
     Returns:
         prob: [B, N, K] Soft assignment.
@@ -321,7 +321,7 @@ def assign_cluster_radii_limited(cluster_centers, data, radii, target_labels):
     target_labels = target_labels.unsqueeze(0)  # 设置batch=1
     logits = compute_logits_radii(cluster_centers, data, radii)  # [B, N, K]
     class_logits = (t.min(logits).data - 100) * t.ones(logits.data.size()).cuda()
-    class_logits[target_labels] = logits.data[target_labels]  # 只将每个样本对应类簇的logits置为负平方欧式距离，其余置为一个非常小的值(-100-min)
+    class_logits[target_labels] = logits.data[target_labels]  # 只将每个样本对应类簇的logits置为负平方欧式距离，其余置为一个非常小的值(-100-min) # TODO 不是特别小
     logits_shape = logits.size()  # shape: [batch, data, cluster]
     bsize = logits_shape[0]
     ndata = logits_shape[1]
@@ -349,9 +349,9 @@ def compute_logits_radii(cluster_centers, data, radii, prior_weight=1, use_sigma
     # TODO: 是否使用Sigma
     #*********************************************************************
     if use_sigma:
-        logits = neg_dist / 2.0 / (radii)  # ((x-μ)^2)/(2σ)
+        logits = neg_dist / 2.0 / radii  # ((x-μ)^2)/(2σ)
         norm_constant = 0.5 * dim * (t.log(radii) + np.log(2 * np.pi))
-        logits = logits - norm_constant
+        logits = logits - norm_constant  # ???TODO 为什么要减去常量
         return logits
     #*********************************************************************
 

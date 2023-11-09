@@ -34,6 +34,7 @@ class EpisodeTask:
             assert task_type in ['Train', 'Validate', 'Test']
         self.TaskType = task_type
 
+        # n = k + qk
         assert k + qk <= N, '支持集和查询集采样总数大于了类中样本总数!'
         self.Params = {'k': k, 'qk': qk, 'n': n, 'N': N}
 
@@ -53,20 +54,11 @@ class EpisodeTask:
         return k, qk, n, N
 
     def _getLabelSpace(self, seed=None):
-        # n = self.Params['n']
-        # seed = magicSeed() if seed is None else seed
-        # self.TaskSeedCache = seed
-        #
-        # sampled_classes = randPermutation(self.Dataset.TotalClassNum, seed)[:n]
-        #
-        # # print('label space: ', sampled_classes)
-        # return sampled_classes
-
         seed = magicSeed() if seed is None else seed
         self.TaskSeedCache = seed
 
         rd.seed(seed)
-        classes_list = [i for i in range(self.Dataset.TotalClassNum)]
+        classes_list = [i for i in range(self.Dataset.TotalClassNum)]  # 87
         sampled_classes = rd.sample(classes_list, self.Params['n'])
 
         # print('label space: ', sampled_classes)
@@ -90,7 +82,7 @@ class EpisodeTask:
 
     def _getEpisodeData(self, support_sampler, query_sampler):
         k, qk, n, N = self._readParams()
-
+        # support_sampler.InstDict: {4: [12, 8, 1, 7, 9], ...*10}
         # support_loader = DataLoader(self.Dataset, batch_size=k * n,
         #                             sampler=support_sampler, collate_fn=batchSequence)#getBatchSequenceFunc())
         # query_loader = DataLoader(self.Dataset, batch_size=qk * n,
@@ -115,8 +107,8 @@ class EpisodeTask:
 
         # 由于分类时是按照类下标与支持集进行分类的，因此先出现的就是第一类，每k个为一个类
         # size: [ql*n]
-        sup_labels = sup_labels[::k].repeat(len(que_labels))  # 支持集重复q长度次，代表每个查询都与所有支持集类比较
-        que_labels = que_labels.view(-1, 1).repeat((1, n)).view(-1)  # 查询集重复n次
+        sup_labels = sup_labels[::k].repeat(len(que_labels))  # 支持集重复q长度[10*50]次，代表每个查询都与所有支持集类比较
+        que_labels = que_labels.view(-1, 1).repeat((1, n)).view(-1)  # 查询集重复n[50*10]次
 
         assert sup_labels.size(0) == que_labels.size(0), \
             '扩展后的支持集和查询集标签长度: (%d, %d) 不一致!' % (sup_labels.size(0), que_labels.size(0))
@@ -152,24 +144,21 @@ class RegularEpisodeTask(EpisodeTask):
 
     # @ClassProfiler("regular_episode")
     def episode(self, task_seed=None, sampling_seed=None):
-        k, qk, n, N = self._readParams()
-
+        k, qk, n, N = self._readParams()  # 5, 5, 10, 20
+        # 87类选n类
         label_space = self._getLabelSpace(task_seed)
         support_sampler, query_sampler = self._getTaskSampler(label_space, sampling_seed)
+        # support_seqs: [n*k, seq_len:300]; support_imgs: [n*k, 1, 224, 224]
         (support_seqs, support_imgs, support_lens, support_labels), \
         (query_seqs, query_imgs, query_lens, query_labels) = self._getEpisodeData(support_sampler, query_sampler)
 
-        query_labels = self._taskLabelNormalize(support_labels, query_labels)
+        query_labels = self._taskLabelNormalize(support_labels, query_labels) # TODO ????
         support_labels = self._taskLabelNormalize(support_labels, support_labels)
         self.LabelsCache = query_labels
         # 1.9修复bug：metric的labels必须在标签归一化之后更新
         self.Metric.updateLabels(query_labels)
 
-        # if self.Parallel is not None:
-        #     supports = supports.repeat((len(self.Parallel),1,1,1))
-        #     self.SupSeqLenCache = [self.SupSeqLenCache]*len(self.Parallel)
-
-        # 重整数据结构，便于模型读取任务参数
+        # 重整数据结构，便于模型读取任务参数 [50, ...] -> [10, 5, ...]
         if support_seqs is not None:
             support_seqs = support_seqs.view(n, k, -1)
             query_seqs = query_seqs.view(n * qk, -1)

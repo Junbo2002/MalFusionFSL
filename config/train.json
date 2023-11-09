@@ -2,9 +2,9 @@
     "task": {
         "dataset": "virushare-20",
         "k": 5,
-        "n": 10,
-        "qk": 5,
-        "version": 300,
+        "n": 5,
+        "qk": 15,
+        "version": 301,
         "device_id": 0,
         "preload_state_dict_versions": []
     },
@@ -15,7 +15,7 @@
             "image"
         ],
         "split_version": 1,
-        "verbose": false,
+        "verbose": true,
         "clip_grad_norm": null
     },
     "description": {
@@ -28,7 +28,7 @@
         "lr": "初始学习率为1e-3"
     },
     "model": {
-        "model_name": "ProtoNet",
+        "model_name": "ConvProtoNet",
         "reproject": {
             "enabled": false,
             "params": {
